@@ -21,10 +21,10 @@ connectDB();
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"],
+    },
 });
 
 const { userSockets, driverSockets } = initSocket(io);
@@ -46,17 +46,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 app.use(
-  fileUpload({
-    createParentPath: true,
-    limits: { fileSize: 10 * 1024 * 1024 },
-  })
+    fileUpload({
+        createParentPath: true,
+        limits: { fileSize: 10 * 1024 * 1024 },
+    })
 );
 
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 app.set('trust proxy', true);
 app.use(limiter);
@@ -68,20 +68,19 @@ app.use("/api/places", placeRoutes);
 app.use("/api/admin", adminRoutes);
 
 app.get("/api/health", (req, res) => {
-  res.json({ success: true, message: "Sakleshpur Cabs API running", timestamp: new Date() });
+    res.json({ success: true, message: "Sakleshpur Cabs API running", timestamp: new Date() });
 });
 
 app.use((req, res) => {
-  res.status(404).json({ success: false, message: "Route not found" });
+    res.status(404).json({ success: false, message: "Route not found" });
 });
 
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ success: false, message: err.message || "Server Error" });
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message || "Server Error" });
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
 });
-
