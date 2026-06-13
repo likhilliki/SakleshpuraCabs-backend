@@ -40,7 +40,14 @@ app.locals.driverSockets = driverSockets;
 // Initialize booking cleanup scheduler
 initializeBookingCleanup();
 
-app.use(helmet());
+app.use(helmet({
+    // React Native's HTTP client is treated as a cross-origin request.
+    // "same-origin" (helmet default) blocks it with no response — causes
+    // "Network Error" on the app. Set to "cross-origin" to allow mobile clients.
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    // COEP "require-corp" would also block RN — keep it disabled for APIs.
+    crossOriginEmbedderPolicy: false,
+}));
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
