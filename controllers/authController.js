@@ -25,13 +25,12 @@ const sendOtp = async (req, res) => {
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
     } else {
-      record = await Driver.findOne({ mobile });
-      if (!record) {
-        return res.status(404).json({ success: false, message: "Driver not found. Please register before requesting OTP." });
-      }
-      record.otp = otp;
-      record.otpExpiry = otpExpiry;
-      await record.save();
+      // Auto-create driver on first OTP request (self-registration flow)
+      record = await Driver.findOneAndUpdate(
+        { mobile },
+        { mobile, otp, otpExpiry },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
     }
 
     const result = await sendOTP(mobile, otp);
