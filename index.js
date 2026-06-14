@@ -19,6 +19,16 @@ const adminRoutes = require("./routes/adminRoutes");
 connectDB();
 
 const app = express();
+
+// ── Trust proxy ───────────────────────────────────────────────────────────────
+// Railway sits behind exactly 1 reverse proxy (Cloudflare / Railway's load
+// balancer). Setting this to 1 tells Express to trust the first X-Forwarded-For
+// hop only — satisfies express-rate-limit's validation without opening the app
+// to IP spoofing from arbitrary clients.
+// MUST be set BEFORE rateLimit() is constructed so the limiter sees the correct
+// client IP from the start.
+app.set('trust proxy', 1);
+
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
@@ -32,20 +42,15 @@ app.set('userSockets', userSockets);
 app.set('driverSockets', driverSockets);
 app.set('io', io);
 
-// Make io and socket maps available to controllers via app locals
 app.locals.io = io;
 app.locals.userSockets = userSockets;
 app.locals.driverSockets = driverSockets;
 
-// Initialize booking cleanup scheduler
 initializeBookingCleanup();
 
+// ── Middleware ────────────────────────────────────────────────────────────────
 app.use(helmet({
-    // React Native's HTTP client is treated as a cross-origin request.
-    // "same-origin" (helmet default) blocks it with no response — causes
-    // "Network Error" on the app. Set to "cross-origin" to allow mobile clients.
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    // COEP "require-corp" would also block RN — keep it disabled for APIs.
     crossOriginEmbedderPolicy: false,
 }));
 app.use(cors({ origin: "*" }));
@@ -59,15 +64,20 @@ app.use(
     })
 );
 
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+// Constructed AFTER trust proxy is set so express-rate-limit can validate
+// the proxy config correctly.
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 200,              // raised slightly — 100 is too tight for mobile polling
     standardHeaders: true,
     legacyHeaders: false,
+    // Skip rate limiting for health checks
+    skip: (req) => req.path === '/api/health',
 });
-app.set('trust proxy', true);
 app.use(limiter);
 
+// ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/booking", bookingRoutes);
@@ -78,10 +88,12 @@ app.get("/api/health", (req, res) => {
     res.json({ success: true, message: "Sakleshpur Cabs API running", timestamp: new Date() });
 });
 
+// ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((req, res) => {
     res.status(404).json({ success: false, message: "Route not found" });
 });
 
+// ── Global error handler ──────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
     console.error(err);
     res.status(500).json({ success: false, message: err.message || "Server Error" });
