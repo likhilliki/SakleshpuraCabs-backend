@@ -10,18 +10,40 @@ const driverSockets = new Map();
 // Key: socket.id, Value: { id, role }
 const socketIdentities = new Map();
 
+// Debounce timers for driver disconnect → offline transition.
+// Keyed by driverId string. Prevents a 1-2s network blip from marking
+// the driver offline mid-ride.
+const driverOfflineTimers = new Map();
+const DRIVER_OFFLINE_GRACE_MS = 15000; // 15 seconds grace period
+
+const haversineDistance = (lat1, lng1, lat2, lng2) => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
 const initSocket = (io) => {
 
   io.on('connection', (socket) => {
     console.log(`[Socket] New connection: ${socket.id}`);
 
-    // IDENTITY REGISTRATION
+    // ── IDENTITY REGISTRATION ──────────────────────────────────────────────
     socket.on('register', ({ userId, role }) => {
       try {
         if (!userId || !role) return;
         socketIdentities.set(socket.id, { id: userId, role });
+
         if (role === 'driver') {
           driverSockets.set(userId, socket.id);
+          // Cancel any pending offline timer for this driver (reconnect)
+          if (driverOfflineTimers.has(userId)) {
+            clearTimeout(driverOfflineTimers.get(userId));
+            driverOfflineTimers.delete(userId);
+          }
           console.log(`[Socket] Driver registered: ${userId}`);
         } else if (role === 'user') {
           userSockets.set(userId, socket.id);
@@ -32,7 +54,7 @@ const initSocket = (io) => {
       }
     });
 
-    // JOIN BOOKING ROOM
+    // ── JOIN BOOKING ROOM ──────────────────────────────────────────────────
     socket.on('user:joinBookingRoom', ({ bookingId }) => {
       try {
         if (!bookingId) return;
@@ -53,7 +75,7 @@ const initSocket = (io) => {
       }
     });
 
-    // DRIVER LOCATION UPDATE
+    // ── DRIVER LOCATION UPDATE ─────────────────────────────────────────────
     socket.on('driver:updateLocation', async ({ driverId, lat, lng, bearing }) => {
       try {
         if (!driverId || lat === undefined || lng === undefined) return;
@@ -85,7 +107,7 @@ const initSocket = (io) => {
       }
     });
 
-    // DRIVER ACCEPTS RIDE
+    // ── DRIVER ACCEPTS RIDE ────────────────────────────────────────────────
     socket.on('driver:acceptRide', async ({ bookingId, driverId }) => {
       try {
         if (!bookingId || !driverId) return;
@@ -114,8 +136,12 @@ const initSocket = (io) => {
         const driver = await Driver.findById(driverId)
           .select('name mobile vehicleNumber vehicleModel vehicleColor rating currentLocation');
 
+        // Driver joins the booking room so they receive all subsequent events
         socket.join(`booking_${bookingId}`);
 
+        // Emit to booking room (catches both user and driver if already joined)
+        // NOTE: user may not be in this room yet if they haven't joined — we also
+        // send directly to the user's socket below as a guarantee.
         io.to(`booking_${bookingId}`).emit('booking:accepted', {
           bookingId,
           driver: {
@@ -131,20 +157,28 @@ const initSocket = (io) => {
           message: 'Driver is on the way!'
         });
 
+        // Also deliver directly to user socket in case user hasn't joined the room yet
         const userSocketId = userSockets.get(booking.userId._id.toString());
         if (userSocketId) {
-          io.to(userSocketId).emit('booking:accepted', {
-            bookingId,
-            driver: {
-              _id: driver._id,
-              name: driver.name,
-              mobile: driver.mobile,
-              vehicleNumber: driver.vehicleNumber,
-              vehicleModel: driver.vehicleModel,
-              vehicleColor: driver.vehicleColor,
-              rating: driver.rating
-            }
-          });
+          // Check if user socket is already in the booking room to avoid duplicate
+          const userSocket = io.sockets.sockets.get(userSocketId);
+          const alreadyInRoom = userSocket && userSocket.rooms.has(`booking_${bookingId}`);
+          if (!alreadyInRoom) {
+            io.to(userSocketId).emit('booking:accepted', {
+              bookingId,
+              driver: {
+                _id: driver._id,
+                name: driver.name,
+                mobile: driver.mobile,
+                vehicleNumber: driver.vehicleNumber,
+                vehicleModel: driver.vehicleModel,
+                vehicleColor: driver.vehicleColor,
+                rating: driver.rating,
+                currentLocation: driver.currentLocation
+              },
+              message: 'Driver is on the way!'
+            });
+          }
         }
 
         console.log(`[Socket] Driver ${driverId} accepted booking ${bookingId}`);
@@ -154,16 +188,21 @@ const initSocket = (io) => {
       }
     });
 
-    // DRIVER DECLINES RIDE
+    // ── DRIVER DECLINES RIDE ───────────────────────────────────────────────
     socket.on('driver:declineRide', async ({ bookingId, driverId }) => {
       try {
         if (!bookingId || !driverId) return;
         console.log(`[Socket] Driver ${driverId} declined booking ${bookingId}`);
 
+        // Populate BOTH places so drop name is available when reassigning
         const booking = await Booking.findById(bookingId)
-          .populate('pickupPlace', 'lat lng name');
+          .populate('pickupPlace', 'lat lng name')
+          .populate('dropPlace', 'name lat lng');
 
         if (!booking || booking.status !== 'searching') return;
+
+        // Clear the declined driver's ID from the booking
+        await Booking.findByIdAndUpdate(bookingId, { $unset: { driverId: 1 } });
 
         const allOnlineDrivers = await Driver.find({
           isOnline: true,
@@ -171,16 +210,6 @@ const initSocket = (io) => {
           _id: { $ne: driverId },
           'currentLocation.lat': { $exists: true }
         }).select('_id currentLocation name mobile vehicleNumber');
-
-        const haversineDistance = (lat1, lng1, lat2, lng2) => {
-          const R = 6371;
-          const dLat = (lat2 - lat1) * Math.PI / 180;
-          const dLng = (lng2 - lng1) * Math.PI / 180;
-          const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                    Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
-                    Math.sin(dLng/2) * Math.sin(dLng/2);
-          return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        };
 
         const nearbyDrivers = allOnlineDrivers
           .filter(d => d.currentLocation && d.currentLocation.lat && d.currentLocation.lng)
@@ -208,6 +237,7 @@ const initSocket = (io) => {
             message: 'Sorry, no drivers are available nearby right now. Please try again.'
           });
 
+          // Also notify user directly in case they haven't joined the room
           const userSocketId = userSockets.get(booking.userId.toString());
           if (userSocketId) {
             io.to(userSocketId).emit('booking:noDrivers', {
@@ -228,11 +258,34 @@ const initSocket = (io) => {
               lat: booking.pickupPlace.lat,
               lng: booking.pickupPlace.lng
             },
-            drop: { name: booking.dropPlace },
+            // FIX: use populated dropPlace.name, not the raw ObjectId
+            drop: {
+              name: booking.dropPlace ? booking.dropPlace.name : 'Destination',
+              lat: booking.dropPlace ? booking.dropPlace.lat : undefined,
+              lng: booking.dropPlace ? booking.dropPlace.lng : undefined,
+            },
             fare: booking.fare,
             distance: Math.round(nextDriver.distance * 10) / 10,
             timeoutSeconds: 15
           });
+          console.log(`[Socket] Ride request reassigned to driver ${nextDriver._id} for booking ${bookingId}`);
+        } else {
+          // Next driver is not connected — cancel booking
+          await Booking.findByIdAndUpdate(bookingId, {
+            status: 'cancelled',
+            cancelReason: 'No drivers available nearby',
+            cancelledBy: 'admin'
+          });
+          io.to(`booking_${bookingId}`).emit('booking:noDrivers', {
+            bookingId,
+            message: 'Sorry, no drivers are available right now. Please try again.'
+          });
+          const userSocketId = userSockets.get(booking.userId.toString());
+          if (userSocketId) {
+            io.to(userSocketId).emit('booking:noDrivers', {
+              message: 'No drivers available. Please try again in a few minutes.'
+            });
+          }
         }
 
       } catch (err) {
@@ -240,7 +293,7 @@ const initSocket = (io) => {
       }
     });
 
-    // DRIVER STARTS RIDE
+    // ── DRIVER STARTS RIDE (OTP verification) ─────────────────────────────
     socket.on('driver:startRide', async ({ bookingId, driverId, rideOtp }) => {
       try {
         if (!bookingId || !driverId || !rideOtp) {
@@ -282,7 +335,12 @@ const initSocket = (io) => {
       }
     });
 
-    // DRIVER COMPLETES RIDE
+    // ── DRIVER COMPLETES RIDE ──────────────────────────────────────────────
+    // This is the socket FALLBACK path — used only if the REST call fails.
+    // The REST completeRide controller is the primary path and already emits
+    // booking:completed. Having both here and in REST is intentional:
+    // REST is tried first; if it fails, captain-app falls back to socket.
+    // The idempotency guard (status !== 'started') prevents double-completion.
     socket.on('driver:completeRide', async ({ bookingId, driverId }) => {
       try {
         if (!bookingId || !driverId) return;
@@ -293,6 +351,23 @@ const initSocket = (io) => {
 
         if (!booking) {
           socket.emit('error', { message: 'Booking not found' });
+          return;
+        }
+
+        // Idempotency: if already completed (REST already handled it), just emit
+        if (booking.status === 'completed') {
+          const driverEarning = booking.driverEarning || Math.round(booking.fare * 0.9);
+          io.to(`booking_${bookingId}`).emit('booking:completed', {
+            bookingId,
+            endTime: booking.endTime,
+            fare: booking.fare,
+            driverEarning,
+            paymentMethod: booking.paymentMethod,
+            paymentStatus: booking.paymentStatus,
+            pickup: booking.pickupPlace.name,
+            drop: booking.dropPlace.name,
+            message: 'You have reached your destination!'
+          });
           return;
         }
 
@@ -311,10 +386,7 @@ const initSocket = (io) => {
         });
 
         await Driver.findByIdAndUpdate(driverId, {
-          $inc: {
-            totalRides: 1,
-            totalEarnings: driverEarning
-          },
+          $inc: { totalRides: 1, totalEarnings: driverEarning },
           isOnline: true
         });
 
@@ -330,14 +402,14 @@ const initSocket = (io) => {
           message: 'You have reached your destination!'
         });
 
-        console.log(`[Socket] Ride completed: booking ${bookingId}, driver earned ₹${driverEarning}`);
+        console.log(`[Socket] Ride completed (socket fallback): booking ${bookingId}, driver earned ₹${driverEarning}`);
       } catch (err) {
         console.error('[Socket] driver:completeRide error:', err.message);
         socket.emit('error', { message: 'Failed to complete ride' });
       }
     });
 
-    // USER CANCELS RIDE
+    // ── USER CANCELS RIDE ──────────────────────────────────────────────────
     socket.on('user:cancelRide', async ({ bookingId, userId, reason }) => {
       try {
         if (!bookingId || !userId) return;
@@ -373,19 +445,42 @@ const initSocket = (io) => {
       }
     });
 
-    // DISCONNECT
+    // ── DISCONNECT ─────────────────────────────────────────────────────────
     socket.on('disconnect', async () => {
       try {
         const identity = socketIdentities.get(socket.id);
         if (identity) {
           if (identity.role === 'driver') {
             driverSockets.delete(identity.id);
-            try {
-              await Driver.findByIdAndUpdate(identity.id, { isOnline: false });
-              console.log(`[Socket] Driver went offline on disconnect: ${identity.id}`);
-            } catch (err) {
-              console.error('[Socket] Failed to set driver offline:', err.message);
+
+            // Debounce: wait DRIVER_OFFLINE_GRACE_MS before marking offline.
+            // If driver reconnects within the grace period, the timer is cancelled
+            // in the 'register' handler above — so no offline flip during mid-ride blips.
+            const driverId = identity.id;
+            if (driverOfflineTimers.has(driverId)) {
+              clearTimeout(driverOfflineTimers.get(driverId));
             }
+            const timer = setTimeout(async () => {
+              driverOfflineTimers.delete(driverId);
+              // Only mark offline if no active/started booking exists
+              try {
+                const activeBooking = await Booking.findOne({
+                  driverId,
+                  status: { $in: ['accepted', 'started'] }
+                }).select('_id');
+
+                if (!activeBooking) {
+                  await Driver.findByIdAndUpdate(driverId, { isOnline: false });
+                  console.log(`[Socket] Driver marked offline after grace period: ${driverId}`);
+                } else {
+                  console.log(`[Socket] Driver ${driverId} has active ride — not marking offline`);
+                }
+              } catch (err) {
+                console.error('[Socket] Failed to set driver offline:', err.message);
+              }
+            }, DRIVER_OFFLINE_GRACE_MS);
+
+            driverOfflineTimers.set(driverId, timer);
           } else if (identity.role === 'user') {
             userSockets.delete(identity.id);
           }
@@ -404,4 +499,3 @@ const initSocket = (io) => {
 };
 
 module.exports = { initSocket };
-

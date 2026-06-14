@@ -10,11 +10,6 @@ router.post('/send-otp', sendOtp);
 router.post('/verify-otp', verifyOtp);
 
 // GET /api/auth/profile  (protected)
-router.get('/profile')
-// POST /api/auth/verify-otp
-router.post('/verify-otp', verifyOtp);
-
-// GET /api/auth/profile  (protected)
 router.get('/profile', protect, getProfile);
 
 module.exports = router;

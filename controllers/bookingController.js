@@ -625,3 +625,94 @@ exports.completeRide = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Failed to complete ride', error: err.message });
   }
 };
+
+// FUNCTION: cashConfirm — user confirms they paid cash to driver
+exports.cashConfirm = async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const userId = req.user._id;
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    if (booking.userId.toString() !== userId.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+
+    if (booking.paymentMethod !== 'cash') {
+      return res.status(400).json({ success: false, message: 'This booking is not a cash payment' });
+    }
+
+    if (booking.paymentStatus === 'paid') {
+      return res.status(200).json({ success: true, message: 'Already confirmed', booking });
+    }
+
+    booking.paymentStatus = 'paid';
+    await booking.save();
+
+    console.log(`[Booking] Cash confirmed for booking ${bookingId}`);
+
+    return res.status(200).json({ success: true, message: 'Cash payment confirmed', booking });
+  } catch (err) {
+    console.error('[cashConfirm] error:', err.message);
+    return res.status(500).json({ success: false, message: 'Error confirming cash payment', error: err.message });
+  }
+};
+
+// FUNCTION: rateRide — user rates driver after ride
+exports.rateRide = async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const userId = req.user._id;
+    const { rating } = req.body;
+
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ success: false, message: 'Rating must be between 1 and 5' });
+    }
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    if (booking.userId.toString() !== userId.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+
+    if (booking.status !== 'completed') {
+      return res.status(400).json({ success: false, message: 'Can only rate completed rides' });
+    }
+
+    if (booking.userRating) {
+      return res.status(400).json({ success: false, message: 'You have already rated this ride' });
+    }
+
+    booking.userRating = rating;
+    await booking.save();
+
+    // Update driver's average rating
+    if (booking.driverId) {
+      const driverBookings = await Booking.find({
+        driverId: booking.driverId,
+        status: 'completed',
+        userRating: { $exists: true, $ne: null }
+      }).select('userRating');
+
+      if (driverBookings.length > 0) {
+        const avgRating = driverBookings.reduce((sum, b) => sum + b.userRating, 0) / driverBookings.length;
+        await Driver.findByIdAndUpdate(booking.driverId, {
+          rating: Math.round(avgRating * 10) / 10
+        });
+      }
+    }
+
+    console.log(`[Booking] Rating ${rating} submitted for booking ${bookingId}`);
+
+    return res.status(200).json({ success: true, message: 'Rating submitted. Thank you!' });
+  } catch (err) {
+    console.error('[rateRide] error:', err.message);
+    return res.status(500).json({ success: false, message: 'Error submitting rating', error: err.message });
+  }
+};

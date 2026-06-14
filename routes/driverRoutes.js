@@ -10,7 +10,7 @@ const {
   getOnlineDrivers,
   getDriverProfile,
 } = require('../controllers/driverController');
-const { protect, protectDriver } = require('../middleware/authMiddleware');
+const { protectDriver } = require('../middleware/authMiddleware');
 
 router.post('/kyc', protectDriver, submitKYC);
 router.get('/status', protectDriver, getDriverStatus);
@@ -19,6 +19,6 @@ router.put('/vehicle', protectDriver, updateVehicle);
 router.put('/bank', protectDriver, updateBank);
 router.put('/toggle-online', protectDriver, toggleOnline);
 router.put('/location', protectDriver, updateLocation);
-router.get('/online', protect, getOnlineDrivers);
+router.get('/online', getOnlineDrivers);
 
 module.exports = router;

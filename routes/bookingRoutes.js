@@ -6,7 +6,11 @@ const {
   getBooking,
   cancelBooking,
   rideHistory,
-  activeBooking
+  activeBooking,
+  startRide,
+  completeRide,
+  cashConfirm,
+  rateRide,
 } = require('../controllers/bookingController');
 const { protect, protectUser, protectDriver } = require('../middleware/authMiddleware');
 
@@ -16,9 +20,11 @@ router.get('/history', protect, rideHistory);
 router.get('/active', protect, activeBooking);
 router.get('/:id', protect, getBooking);
 router.put('/:id/cancel', protect, cancelBooking);
+router.put('/:id/cash-confirm', protectUser, cashConfirm);
+router.post('/:id/rate', protectUser, rateRide);
 
-// REST fallback for driver actions
-router.put('/:id/start', protectDriver, require('../controllers/bookingController').startRide);
-router.put('/:id/complete', protectDriver, require('../controllers/bookingController').completeRide);
+// Driver actions
+router.put('/:id/start', protectDriver, startRide);
+router.put('/:id/complete', protectDriver, completeRide);
 
 module.exports = router;

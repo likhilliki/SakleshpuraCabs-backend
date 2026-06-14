@@ -41,6 +41,8 @@ const BookingSchema = new mongoose.Schema({
   driverAssignedAt: { type: Date },
   searchRadius: { type: Number, default: 5 },
 
+  userRating: { type: Number, min: 1, max: 5 },
+
   createdAt: { type: Date, default: Date.now }
 });
 
