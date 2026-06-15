@@ -77,7 +77,9 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+// ── Static file serving for uploaded documents ───────────────────────────────
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/booking", bookingRoutes);
