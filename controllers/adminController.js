@@ -527,6 +527,7 @@ const getRevenueChart = async (req, res) => {
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - parseInt(days));
+    startDate.setHours(0, 0, 0, 0);
 
     const revenueData = await Booking.aggregate([
       {
@@ -538,31 +539,22 @@ const getRevenueChart = async (req, res) => {
       {
         $group: {
           _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' },
-            day: { $dayOfMonth: '$createdAt' }
+            year:  { $year:       '$createdAt' },
+            month: { $month:      '$createdAt' },
+            day:   { $dayOfMonth: '$createdAt' }
           },
-          totalRevenue: { $sum: '$fare' },
+          totalRevenue:    { $sum: '$fare'        },
           platformRevenue: { $sum: '$platformFee' },
-          rides: { $sum: 1 }
+          rides:           { $sum: 1 }
         }
       },
       { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } }
     ]);
 
-    const formattedData = revenueData.map((item) => {
-      const date = new Date(item._id.year, item._id.month - 1, item._id.day);
-      return {
-        date: date.toISOString().split('T')[0],
-        totalRevenue: item.totalRevenue,
-        platformRevenue: item.platformRevenue,
-        rides: item.rides
-      };
-    });
-
     return res.status(200).json({
       success: true,
-      data: formattedData,
+      // Return the raw aggregation shape — frontend reads _id.day / _id.month
+      data: revenueData,
       period: days + ' days'
     });
   } catch (error) {
@@ -580,41 +572,146 @@ const updatePlaceFare = async (req, res) => {
     const { id } = req.params;
     const { fareFromTown } = req.body;
 
-    if (!fareFromTown || fareFromTown <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Fare must be a positive number'
-      });
+    const num = parseInt(fareFromTown, 10);
+    if (isNaN(num) || num < 0) {
+      return res.status(400).json({ success: false, message: 'Fare must be 0 or a positive number' });
     }
 
     const place = await Place.findByIdAndUpdate(
       id,
-      { fareFromTown: parseInt(fareFromTown) },
+      { fareFromTown: num },
       { new: true }
     );
 
     if (!place) {
-      return res.status(404).json({
-        success: false,
-        message: 'Place not found'
-      });
+      return res.status(404).json({ success: false, message: 'Place not found' });
     }
 
     return res.status(200).json({
       success: true,
-      message: 'Fare updated to ₹' + fareFromTown,
-      place: {
-        _id: place._id,
-        name: place.name,
-        fareFromTown: place.fareFromTown
-      }
+      message: 'Fare updated to ₹' + num,
+      place: { _id: place._id, name: place.name, fareFromTown: place.fareFromTown }
     });
   } catch (error) {
     console.error('updatePlaceFare error:', error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
+    return res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
+// Function: getAllPlacesAdmin (includes inactive)
+const getAllPlacesAdmin = async (req, res) => {
+  try {
+    const places = await Place.find().sort({ isFeatured: -1, fareFromTown: 1 });
+    return res.status(200).json({ success: true, count: places.length, places });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
+// Function: createPlace
+const createPlace = async (req, res) => {
+  try {
+    const {
+      name, category, description, lat, lng,
+      fareFromTown, distanceFromTown, estimatedDuration,
+      isActive, isFeatured
+    } = req.body;
+
+    if (!name || !category || lat === undefined || lng === undefined || fareFromTown === undefined) {
+      return res.status(400).json({ success: false, message: 'name, category, lat, lng, fareFromTown are required' });
+    }
+
+    const existing = await Place.findOne({ name: { $regex: `^${name.trim()}$`, $options: 'i' } });
+    if (existing) {
+      return res.status(400).json({ success: false, message: 'A place with this name already exists' });
+    }
+
+    const place = await Place.create({
+      name: name.trim(),
+      category,
+      description: description || '',
+      lat: parseFloat(lat),
+      lng: parseFloat(lng),
+      fareFromTown: parseInt(fareFromTown, 10),
+      distanceFromTown: distanceFromTown ? parseFloat(distanceFromTown) : 0,
+      estimatedDuration: estimatedDuration ? parseInt(estimatedDuration, 10) : 0,
+      isActive: isActive !== false,
+      isFeatured: isFeatured === true,
     });
+
+    return res.status(201).json({ success: true, message: 'Place created successfully', place });
+  } catch (error) {
+    console.error('createPlace error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
+// Function: updatePlace (full edit)
+const updatePlace = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name, category, description, lat, lng,
+      fareFromTown, distanceFromTown, estimatedDuration,
+      isActive, isFeatured
+    } = req.body;
+
+    const updateData = {};
+    if (name !== undefined) updateData.name = name.trim();
+    if (category !== undefined) updateData.category = category;
+    if (description !== undefined) updateData.description = description;
+    if (lat !== undefined) updateData.lat = parseFloat(lat);
+    if (lng !== undefined) updateData.lng = parseFloat(lng);
+    if (fareFromTown !== undefined) updateData.fareFromTown = parseInt(fareFromTown, 10);
+    if (distanceFromTown !== undefined) updateData.distanceFromTown = parseFloat(distanceFromTown);
+    if (estimatedDuration !== undefined) updateData.estimatedDuration = parseInt(estimatedDuration, 10);
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
+
+    const place = await Place.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
+    if (!place) {
+      return res.status(404).json({ success: false, message: 'Place not found' });
+    }
+
+    return res.status(200).json({ success: true, message: 'Place updated successfully', place });
+  } catch (error) {
+    console.error('updatePlace error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
+// Function: deletePlace (soft delete — sets isActive: false)
+const deletePlace = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { permanent } = req.query;
+
+    if (permanent === 'true') {
+      // Hard delete — check no active bookings reference this place
+      const activeBookings = await Booking.countDocuments({
+        $or: [{ pickupPlace: id }, { dropPlace: id }],
+        status: { $in: ['searching', 'accepted', 'started'] }
+      });
+      if (activeBookings > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot delete place with active bookings in progress'
+        });
+      }
+      await Place.findByIdAndDelete(id);
+      return res.status(200).json({ success: true, message: 'Place permanently deleted' });
+    }
+
+    // Soft delete
+    const place = await Place.findByIdAndUpdate(id, { isActive: false }, { new: true });
+    if (!place) {
+      return res.status(404).json({ success: false, message: 'Place not found' });
+    }
+
+    return res.status(200).json({ success: true, message: 'Place deactivated', place });
+  } catch (error) {
+    console.error('deletePlace error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Server error' });
   }
 };
 
@@ -710,5 +807,9 @@ module.exports = {
   getAllUsers,
   getRevenueChart,
   updatePlaceFare,
+  getAllPlacesAdmin,
+  createPlace,
+  updatePlace,
+  deletePlace,
   getAnalytics
 };
