@@ -1,4 +1,4 @@
-﻿const jwt = require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
 const Booking = require('../models/Booking');
 const Driver = require('../models/Driver');
 const User = require('../models/User');
@@ -112,7 +112,7 @@ const approveDriver = async (req, res) => {
       io.to(driverSocketId).emit('account:approved', { message: 'Congratulations! Your account has been approved. You can now go online and accept rides.' });
     }
     if (driver.fcmToken) {
-      await sendPushNotification({ token: driver.fcmToken, title: '🎉 Account Approved!', body: 'Your KYC has been approved. Go online and start earning!', data: { screen: 'Home', type: 'account_approved' } });
+      await sendPushNotification({ token: driver.fcmToken, title: '?? Account Approved!', body: 'Your KYC has been approved. Go online and start earning!', data: { screen: 'Home', type: 'account_approved' } });
     }
     return res.status(200).json({ success: true, message: 'Driver approved successfully.', driver: { _id: driver._id, name: driver.name, mobile: driver.mobile, isApproved: driver.isApproved, approvedAt: driver.approvedAt } });
   } catch (error) {
@@ -136,7 +136,7 @@ const rejectDriver = async (req, res) => {
       io.to(driverSocketId).emit('account:rejected', { reason, message: 'Your KYC was not approved. Reason: ' + reason });
     }
     if (driver.fcmToken) {
-      await sendPushNotification({ token: driver.fcmToken, title: '❌ KYC Rejected', body: `Reason: ${reason}. Please resubmit with correct documents.`, data: { screen: 'Registration', type: 'account_rejected', reason } });
+      await sendPushNotification({ token: driver.fcmToken, title: '? KYC Rejected', body: `Reason: ${reason}. Please resubmit with correct documents.`, data: { screen: 'Registration', type: 'account_rejected', reason } });
     }
     return res.status(200).json({ success: true, message: 'Driver rejected.', driver: { _id: driver._id, name: driver.name, isRejected: driver.isRejected, rejectionReason: driver.rejectionReason } });
   } catch (error) {
@@ -237,7 +237,7 @@ const updatePlaceFare = async (req, res) => {
     if (isNaN(num) || num < 0) return res.status(400).json({ success: false, message: 'Fare must be 0 or a positive number' });
     const place = await Place.findByIdAndUpdate(req.params.id, { fareFromTown: num }, { new: true });
     if (!place) return res.status(404).json({ success: false, message: 'Place not found' });
-    return res.status(200).json({ success: true, message: 'Fare updated to ₹' + num, place: { _id: place._id, name: place.name, fareFromTown: place.fareFromTown } });
+    return res.status(200).json({ success: true, message: 'Fare updated to ?' + num, place: { _id: place._id, name: place.name, fareFromTown: place.fareFromTown } });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

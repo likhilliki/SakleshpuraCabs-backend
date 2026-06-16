@@ -76,8 +76,8 @@ const uploadFilesToCloudinary = async (req, res, next) => {
         const file = fileArr[0];
         const isProfile = profileFields.includes(fieldName);
         const folder = isProfile
-          ? 'sakleshpur-cabs/profiles'
-          : `sakleshpur-cabs/kyc/${driverId}`;
+          ? 'vibzz/profiles'
+          : `vibzz/kyc/${driverId}`;
         const transformation = isProfile
           ? [{ width: 400, height: 400, crop: 'fill', quality: 'auto' }]
           : [{ width: 1200, quality: 'auto', fetch_format: 'auto' }];

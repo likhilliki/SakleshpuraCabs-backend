@@ -1,4 +1,4 @@
-﻿const jwt = require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
 const Booking = require('../models/Booking');
 const Driver = require('../models/Driver');
 const User = require('../models/User');
@@ -22,7 +22,7 @@ const initSocket = (io) => {
   io.on('connection', (socket) => {
     console.log(`[Socket] New connection: ${socket.id}`);
 
-    // ── IDENTITY REGISTRATION ──
+    // -- IDENTITY REGISTRATION --
     socket.on('register', ({ userId, role }) => {
       try {
         if (!userId || !role) return;
@@ -43,7 +43,7 @@ const initSocket = (io) => {
       }
     });
 
-    // ── ADMIN ROOM ──
+    // -- ADMIN ROOM --
     socket.on('join:admin', async ({ adminToken }) => {
       try {
         const decoded = jwt.verify(adminToken, process.env.JWT_SECRET);
@@ -56,7 +56,7 @@ const initSocket = (io) => {
       }
     });
 
-    // ── JOIN BOOKING ROOM ──
+    // -- JOIN BOOKING ROOM --
     socket.on('user:joinBookingRoom', ({ bookingId }) => {
       try { if (bookingId) socket.join(`booking_${bookingId}`); } catch (_) {}
     });
@@ -65,7 +65,7 @@ const initSocket = (io) => {
       try { if (bookingId) socket.join(`booking_${bookingId}`); } catch (_) {}
     });
 
-    // ── DRIVER LOCATION UPDATE ──
+    // -- DRIVER LOCATION UPDATE --
     socket.on('driver:updateLocation', async ({ driverId, lat, lng, bearing }) => {
       try {
         if (!driverId || lat === undefined || lng === undefined) return;
@@ -79,7 +79,7 @@ const initSocket = (io) => {
       }
     });
 
-    // ── DRIVER ACCEPTS RIDE ──
+    // -- DRIVER ACCEPTS RIDE --
     socket.on('driver:acceptRide', async ({ bookingId, driverId }) => {
       try {
         if (!bookingId || !driverId) return;
@@ -104,7 +104,7 @@ const initSocket = (io) => {
         }
         // Push to user
         if (booking.userId?.fcmToken) {
-          await sendPushNotification({ token: booking.userId.fcmToken, title: '🚗 Driver Found!', body: `${driver.name} is on the way in ${driver.vehicleModel}`, data: { bookingId: bookingId.toString(), screen: 'Tracking', type: 'driver_accepted' } });
+          await sendPushNotification({ token: booking.userId.fcmToken, title: '?? Driver Found!', body: `${driver.name} is on the way in ${driver.vehicleModel}`, data: { bookingId: bookingId.toString(), screen: 'Tracking', type: 'driver_accepted' } });
         }
         // Notify admin
         io.to('admin_room').emit('admin:bookingUpdate', { bookingId, status: 'accepted', driverName: driver.name });
@@ -115,7 +115,7 @@ const initSocket = (io) => {
       }
     });
 
-    // ── DRIVER DECLINES RIDE ──
+    // -- DRIVER DECLINES RIDE --
     socket.on('driver:declineRide', async ({ bookingId, driverId }) => {
       try {
         if (!bookingId || !driverId) return;
@@ -154,7 +154,7 @@ const initSocket = (io) => {
         } else {
           // fallback push
           if (nextDriver.fcmToken) {
-            await sendPushNotification({ token: nextDriver.fcmToken, title: '🔔 New Ride Request!', body: `₹${booking.fare} · ${booking.pickupPlace?.name}`, data: { bookingId: booking._id.toString(), screen: 'RideRequest', type: 'new_ride', fare: String(booking.fare) } });
+            await sendPushNotification({ token: nextDriver.fcmToken, title: '?? New Ride Request!', body: `?${booking.fare} � ${booking.pickupPlace?.name}`, data: { bookingId: booking._id.toString(), screen: 'RideRequest', type: 'new_ride', fare: String(booking.fare) } });
           }
         }
       } catch (err) {
@@ -162,7 +162,7 @@ const initSocket = (io) => {
       }
     });
 
-    // ── DRIVER STARTS RIDE (OTP verification) ──
+    // -- DRIVER STARTS RIDE (OTP verification) --
     socket.on('driver:startRide', async ({ bookingId, driverId, rideOtp }) => {
       try {
         if (!bookingId || !driverId || !rideOtp) { socket.emit('error', { message: 'bookingId, driverId, and rideOtp are required' }); return; }
@@ -179,7 +179,7 @@ const initSocket = (io) => {
       }
     });
 
-    // ── DRIVER COMPLETES RIDE ──
+    // -- DRIVER COMPLETES RIDE --
     socket.on('driver:completeRide', async ({ bookingId, driverId }) => {
       try {
         if (!bookingId || !driverId) return;
@@ -207,7 +207,7 @@ const initSocket = (io) => {
         // Push to user
         const user = await User.findById(booking.userId).select('fcmToken');
         if (user?.fcmToken) {
-          await sendPushNotification({ token: user.fcmToken, title: '✅ Ride Complete!', body: `You have arrived at ${booking.dropPlace?.name}. Fare: ₹${booking.fare}`, data: { bookingId: bookingId.toString(), screen: 'Payment', type: 'ride_completed' } });
+          await sendPushNotification({ token: user.fcmToken, title: '? Ride Complete!', body: `You have arrived at ${booking.dropPlace?.name}. Fare: ?${booking.fare}`, data: { bookingId: bookingId.toString(), screen: 'Payment', type: 'ride_completed' } });
         }
         // Notify admin
         io.to('admin_room').emit('admin:rideCompleted', { bookingId, fare: booking.fare, driverName: (await Driver.findById(driverId).select('name'))?.name });
@@ -218,7 +218,7 @@ const initSocket = (io) => {
       }
     });
 
-    // ── USER CANCELS RIDE ──
+    // -- USER CANCELS RIDE --
     socket.on('user:cancelRide', async ({ bookingId, userId, reason }) => {
       try {
         if (!bookingId || !userId) return;
@@ -230,7 +230,7 @@ const initSocket = (io) => {
           if (driverSocketId) io.to(driverSocketId).emit('booking:cancelledByUser', { bookingId, message: 'User has cancelled the ride.' });
           const driver = await Driver.findById(booking.driverId).select('fcmToken');
           if (driver?.fcmToken) {
-            await sendPushNotification({ token: driver.fcmToken, title: '❌ Ride Cancelled', body: 'Passenger has cancelled the ride.', data: { bookingId: bookingId.toString(), type: 'ride_cancelled' } });
+            await sendPushNotification({ token: driver.fcmToken, title: '? Ride Cancelled', body: 'Passenger has cancelled the ride.', data: { bookingId: bookingId.toString(), type: 'ride_cancelled' } });
           }
         }
         io.to(`booking_${bookingId}`).emit('booking:cancelled', { bookingId, message: 'Booking cancelled' });
@@ -240,7 +240,7 @@ const initSocket = (io) => {
       }
     });
 
-    // ── DISCONNECT ──
+    // -- DISCONNECT --
     socket.on('disconnect', async () => {
       try {
         const identity = socketIdentities.get(socket.id);

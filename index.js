@@ -55,7 +55,7 @@ app.use('/api/places', placeRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'Sakleshpur Cabs API running', timestamp: new Date() });
+  res.json({ success: true, message: 'Vibzz API running', timestamp: new Date() });
 });
 
 app.use((req, res) => res.status(404).json({ success: false, message: 'Route not found' }));

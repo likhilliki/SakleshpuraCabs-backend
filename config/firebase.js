@@ -39,7 +39,7 @@ const sendPushNotification = async ({ token, title, body, data = {} }) => {
       token,
       android: {
         priority: 'high',
-        notification: { sound: 'default', channelId: 'sakleshpur_cabs' },
+        notification: { sound: 'default', channelId: 'vibzz' },
       },
     };
     const response = await admin.messaging().send(message);
@@ -59,7 +59,7 @@ const sendMulticastNotification = async ({ tokens, title, body, data = {} }) => 
       notification: { title, body },
       data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
       tokens: tokens.filter(Boolean),
-      android: { priority: 'high', notification: { sound: 'default', channelId: 'sakleshpur_cabs' } },
+      android: { priority: 'high', notification: { sound: 'default', channelId: 'vibzz' } },
     };
     const response = await admin.messaging().sendEachForMulticast(message);
     return { success: true, successCount: response.successCount };
