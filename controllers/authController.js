@@ -36,12 +36,9 @@ const sendOtp = async (req, res) => {
       return res.status(500).json({ success: false, message: 'Failed to send OTP. Try again.' });
     }
 
-    const responseData = { success: true, message: `OTP sent to ${mobile}` };
-    if (process.env.NODE_ENV === 'development') {
-      responseData.otp = otp;
-    }
-
-    return res.status(200).json(responseData);
+    // Never return OTP in response — not even in development.
+    // Developers can read it from server console logs.
+    return res.status(200).json({ success: true, message: `OTP sent to ${mobile}` });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
