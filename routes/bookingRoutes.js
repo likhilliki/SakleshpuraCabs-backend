@@ -11,9 +11,11 @@ const {
   completeRide,
   cashConfirm,
   rateRide,
+  getFareOptions,
 } = require('../controllers/bookingController');
 const { protect, protectUser, protectDriver } = require('../middleware/authMiddleware');
 
+router.get('/fare-options', protect, getFareOptions);
 router.post('/create', protectUser, createBooking);
 router.post('/confirm-payment', protectUser, confirmPayment);
 router.get('/history', protect, rideHistory);

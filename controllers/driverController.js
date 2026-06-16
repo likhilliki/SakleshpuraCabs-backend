@@ -1,18 +1,4 @@
-﻿const fs = require('node:fs');
-const path = require('node:path');
-const Driver = require('../models/Driver');
-
-const getUploadDir = (driverId) => {
-  const uploadDir = path.join(__dirname, '..', 'uploads', 'drivers', driverId.toString());
-  fs.mkdirSync(uploadDir, { recursive: true });
-  return uploadDir;
-};
-
-const saveUploadFile = async (file, uploadDir, fileName) => {
-  const filePath = path.join(uploadDir, fileName);
-  await file.mv(filePath);
-  return filePath.replaceAll('\\', '/');
-};
+﻿const Driver = require('../models/Driver');
 
 const submitKYC = async (req, res) => {
   try {
@@ -35,6 +21,7 @@ const submitKYC = async (req, res) => {
       vehicleModel,
       vehicleColor,
       vehicleYear,
+      vehicleType,
     } = req.body;
 
     const missingFields = [];
@@ -52,7 +39,8 @@ const submitKYC = async (req, res) => {
       });
     }
 
-    if (!/^\d{12}$/.test(aadhaarNumber)) {
+    const cleanAadhaar = aadhaarNumber.replace(/\s/g, '');
+    if (!/^\d{12}$/.test(cleanAadhaar)) {
       return res.status(400).json({ success: false, message: 'Aadhaar number must be exactly 12 digits' });
     }
 
@@ -70,48 +58,42 @@ const submitKYC = async (req, res) => {
       });
     }
 
-    const uploadDir = getUploadDir(driverId);
     const updateData = {
       name: name.trim(),
-      aadhaarNumber: aadhaarNumber.trim(),
-      drivingLicenseNumber: drivingLicenseNumber.trim(),
-      rcBookNumber: rcBookNumber.trim(),
-      vehicleNumber: vehicleNumber.trim(),
+      aadhaarNumber: cleanAadhaar,
+      drivingLicenseNumber: drivingLicenseNumber.trim().toUpperCase(),
+      rcBookNumber: rcBookNumber.trim().toUpperCase(),
+      vehicleNumber: vehicleNumber.trim().toUpperCase(),
       vehicleModel: vehicleModel.trim(),
       vehicleColor: vehicleColor ? vehicleColor.trim() : undefined,
       vehicleYear: vehicleYear ? vehicleYear.trim() : undefined,
+      vehicleType: vehicleType || 'car',
       kycSubmitted: true,
       kycSubmittedAt: new Date(),
     };
 
-    const processFile = async (fieldName) => {
-      const file = files[fieldName];
-      if (!file.mimetype.startsWith('image/')) {
-        throw new Error(`${fieldName} must be an image file`);
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        throw new Error(`${fieldName} must be smaller than 5MB`);
-      }
-      const ext = path.extname(file.name);
-      const savedName = `${fieldName}-${Date.now()}${ext}`;
-      const savedPath = await saveUploadFile(file, uploadDir, savedName);
-      return savedPath;
-    };
-
-    try {
-      updateData.aadhaarPhoto = await processFile('aadhaarPhoto');
-      updateData.drivingLicensePhoto = await processFile('drivingLicensePhoto');
-      updateData.rcBookPhoto = await processFile('rcBookPhoto');
-
-      if (files.profilePhoto) {
-        const profilePath = await processFile('profilePhoto');
-        updateData.profilePhoto = profilePath;
-      }
-    } catch (uploadError) {
-      return res.status(400).json({ success: false, message: uploadError.message });
-    }
+    // Cloudinary URLs come from req.files[field][0].path
+    if (files.aadhaarPhoto?.[0]) updateData.aadhaarPhoto = files.aadhaarPhoto[0].path;
+    if (files.drivingLicensePhoto?.[0]) updateData.drivingLicensePhoto = files.drivingLicensePhoto[0].path;
+    if (files.rcBookPhoto?.[0]) updateData.rcBookPhoto = files.rcBookPhoto[0].path;
+    if (files.profilePhoto?.[0]) updateData.profilePhoto = files.profilePhoto[0].path;
 
     const updatedDriver = await Driver.findByIdAndUpdate(driverId, updateData, { new: true });
+
+    // Notify admin room via socket if available
+    try {
+      const io = req.app?.locals?.io;
+      if (io) {
+        io.to('admin_room').emit('admin:newKYCSubmission', {
+          driverName: updatedDriver.name,
+          driverId: updatedDriver._id,
+          submittedAt: updatedDriver.kycSubmittedAt,
+        });
+      }
+    } catch (socketErr) {
+      console.error('[KYC] Socket emit error:', socketErr.message);
+    }
+
     return res.status(200).json({
       success: true,
       message: 'KYC submitted successfully. Waiting for admin approval.',
@@ -150,8 +132,11 @@ const getDriverStatus = async (req, res) => {
         isOnline: driver.isOnline,
         rating: driver.rating,
         totalRides: driver.totalRides,
+        totalEarnings: driver.totalEarnings,
         vehicleNumber: driver.vehicleNumber,
         vehicleModel: driver.vehicleModel,
+        vehicleType: driver.vehicleType,
+        walletBalance: driver.walletBalance,
       },
     });
   } catch (error) {
@@ -163,7 +148,7 @@ const getDriverStatus = async (req, res) => {
 const updateVehicle = async (req, res) => {
   try {
     const driverId = req.user._id;
-    const { vehicleNumber, vehicleModel, vehicleColor, vehicleYear } = req.body;
+    const { vehicleNumber, vehicleModel, vehicleColor, vehicleYear, vehicleType } = req.body;
 
     if (!vehicleNumber || !vehicleModel) {
       return res.status(400).json({ success: false, message: 'vehicleNumber and vehicleModel are required' });
@@ -172,10 +157,11 @@ const updateVehicle = async (req, res) => {
     const updatedDriver = await Driver.findByIdAndUpdate(
       driverId,
       {
-        vehicleNumber: vehicleNumber.trim(),
+        vehicleNumber: vehicleNumber.trim().toUpperCase(),
         vehicleModel: vehicleModel.trim(),
         vehicleColor: vehicleColor ? vehicleColor.trim() : undefined,
         vehicleYear: vehicleYear ? vehicleYear.trim() : undefined,
+        vehicleType: vehicleType || 'car',
       },
       { new: true }
     );
@@ -284,7 +270,7 @@ const updateLocation = async (req, res) => {
 const getOnlineDrivers = async (req, res) => {
   try {
     const drivers = await Driver.find({ isOnline: true, isApproved: true }).select(
-      '_id name vehicleNumber vehicleModel vehicleColor rating currentLocation'
+      '_id name vehicleNumber vehicleModel vehicleColor vehicleType rating currentLocation'
     );
     return res.status(200).json({ success: true, count: drivers.length, drivers });
   } catch (error) {
@@ -296,7 +282,7 @@ const getOnlineDrivers = async (req, res) => {
 const getDriverProfile = async (req, res) => {
   try {
     const driverId = req.user._id;
-    const driver = await Driver.findById(driverId).select('-otp -otpExpiry -bankAccount.accountNumber');
+    const driver = await Driver.findById(driverId).select('-otp -otpExpiry -bankAccount.accountNumber -walletTransactions');
     if (!driver) {
       return res.status(404).json({ success: false, message: 'Driver not found' });
     }
@@ -305,6 +291,17 @@ const getDriverProfile = async (req, res) => {
   } catch (error) {
     console.error('getDriverProfile error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch driver profile' });
+  }
+};
+
+const saveFcmToken = async (req, res) => {
+  try {
+    const { fcmToken } = req.body;
+    if (!fcmToken) return res.status(400).json({ success: false, message: 'FCM token required' });
+    await Driver.findByIdAndUpdate(req.user._id, { fcmToken });
+    res.json({ success: true, message: 'FCM token saved' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -317,4 +314,5 @@ module.exports = {
   updateLocation,
   getOnlineDrivers,
   getDriverProfile,
+  saveFcmToken,
 };

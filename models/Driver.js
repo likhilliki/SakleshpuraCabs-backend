@@ -1,6 +1,15 @@
 ﻿const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 
+const WalletTransactionSchema = new mongoose.Schema({
+  type: { type: String, enum: ['credit', 'debit'], required: true },
+  amount: { type: Number, required: true },
+  reason: { type: String },
+  bookingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Booking' },
+  razorpayPaymentId: { type: String },
+  createdAt: { type: Date, default: Date.now },
+});
+
 const DriverSchema = new mongoose.Schema({
   name: { type: String, trim: true },
   mobile: { type: String, required: true, unique: true, trim: true },
@@ -31,6 +40,11 @@ const DriverSchema = new mongoose.Schema({
   vehicleModel: { type: String, trim: true },
   vehicleColor: { type: String, trim: true },
   vehicleYear: { type: String },
+  vehicleType: {
+    type: String,
+    enum: ['auto', 'bike', 'car', 'suv', 'xuv'],
+    default: 'car',
+  },
 
   // Live status
   isOnline: { type: Boolean, default: false },
@@ -54,6 +68,14 @@ const DriverSchema = new mongoose.Schema({
     isVerified: { type: Boolean, default: false },
   },
 
+  // Wallet
+  walletBalance: { type: Number, default: 0 },
+  walletTransactions: [WalletTransactionSchema],
+  hasMinimumWallet: { type: Boolean, default: false },
+
+  // Push notifications
+  fcmToken: { type: String, default: null },
+
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -66,4 +88,3 @@ DriverSchema.methods.generateAuthToken = function () {
 };
 
 module.exports = mongoose.model('Driver', DriverSchema);
-

@@ -1,15 +1,12 @@
 ﻿const express = require('express');
 const router = express.Router();
-const { sendOtp, verifyOtp, getProfile } = require('../controllers/authController');
-const { protect } = require('../middleware/authMiddleware');
+const { sendOtp, verifyOtp, getProfile, updateProfile, saveFcmToken } = require('../controllers/authController');
+const { protect, protectUser } = require('../middleware/authMiddleware');
 
-// POST /api/auth/send-otp
 router.post('/send-otp', sendOtp);
-
-// POST /api/auth/verify-otp
 router.post('/verify-otp', verifyOtp);
-
-// GET /api/auth/profile  (protected)
 router.get('/profile', protect, getProfile);
+router.put('/update-profile', protectUser, updateProfile);
+router.post('/fcm-token', protectUser, saveFcmToken);
 
 module.exports = router;
