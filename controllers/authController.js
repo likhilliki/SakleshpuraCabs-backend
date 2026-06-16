@@ -33,12 +33,16 @@ const sendOtp = async (req, res) => {
 
     const result = await sendOTP(mobile, otp);
     if (!result.success) {
-      return res.status(500).json({ success: false, message: 'Failed to send OTP. Try again.' });
+      return res.status(500).json({ success: false, message: 'Failed to send OTP. Please try again.' });
     }
 
-    // Never return OTP in response — not even in development.
-    // Developers can read it from server console logs.
-    return res.status(200).json({ success: true, message: `OTP sent to ${mobile}` });
+    // In production: never expose OTP in response.
+    // Set DEBUG_OTP=true in .env ONLY for local testing when SMS is not configured.
+    const responseData = { success: true, message: `OTP sent to ${mobile}` };
+    if (process.env.DEBUG_OTP === 'true') {
+      responseData.otp = otp; // visible in API response for local dev only
+    }
+    return res.status(200).json(responseData);
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
